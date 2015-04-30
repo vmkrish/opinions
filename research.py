@@ -7,9 +7,31 @@ DELTA = 1e-5
 def argmin(L):
   return min(enumerate(L), key=lambda x: x[1])[0]
 
+def partition(L):
+  """Yields sets of tuples."""
+  if not L:
+    yield set()
+  for i in range(int(2**(len(L)-1))):
+    parts = (list(), list())
+    for item in L:
+      parts[i%2].append(item)
+      i >>= 1
+    for rest in partition(parts[1]):
+      
+      yield {tuple(parts[0])} | rest
+
+class HashablePartition(set):
+  def __hash__(self):
+    _list = list(self)
+    _list.sort()
+    return tuple(_list).__hash__()
+
 def unroll(f):
   """Returns g such that g(x) = f(*x)."""
   return lambda x: f(*x)
+
+class Player(collections.namedtuple('Player', ['z'])):
+  pass
 
 class Graph(object):
   def __init__(self, L=()):
@@ -36,27 +58,27 @@ class Game(object):
       players: List of player z initial values indicies, eg
         [0, 1, 2].  Should be same size as graph.
     """
-    Player = collections.namedtuple('Player', ['z'])
-    self.graph = Graph([(0, 1)])
+    self.graph = graph
     self.strategies = values
     self.players = [Player(player_val) for player_val in players]
 
-  def cost(self, strategy_index, z, neigbor_strategies):
-    """
+  def cost(self, strategy, z, neigbor_strategies):
+    """Cost of playing strategy if internal value is z.
+
     Args:
-      strategy_index - index of s_i
+      strategy - ith player's strategy
       z - index of z_i
       adjacent_strategies - collection of surrounding s_j.
     """
-    dist_to_self = self.dist(z, strategy_index)**2
+    dist_to_self = self.dist(z, strategy)
     dist_to_neighbors = sum(map(
-        lambda neighbor_strategy: self.dist(neighbor_strategy, strategy_index)**2,
+        lambda neighbor_strategy: self.dist(neighbor_strategy, strategy),
         neigbor_strategies))
     return dist_to_self + dist_to_neighbors
 
   def dist(self, strategy1, strategy2):
-    """distance from self.values[i] to self.values[j]."""
-    return abs(self.strategies[strategy1] - self.strategies[strategy2])
+    """distance from strategy1 to strategy2."""
+    return abs(strategy1 - strategy2)**2
 
   def adj(self, i):
     """List of players adjacent to i."""
@@ -65,50 +87,110 @@ class Game(object):
   
   def update(self):
     self.cost_matrix = {}  # (tuple of player values) -> (tuple of payoffs)
-    for values_idx in itertools.product(  # |players| copies of self.strategies
-      range(len(self.strategies)), repeat=len(self.players)):
+    for all_players_strategies in itertools.product(  # |players| copies of self.strategies
+      self.strategies, repeat=len(self.players)):
       costs = []
       for i in range(len(self.players)):
          cost_to_i = self.cost(
-           values_idx[i], self.players[i].z, [values_idx[j] for j in self.adj(i)])
+           all_players_strategies[i],
+           self.strategies[self.players[i].z],
+           [all_players_strategies[j] for j in self.adj(i)])
          costs.append(cost_to_i)
-      self.cost_matrix[values_idx] = costs
+      self.cost_matrix[all_players_strategies] = costs
           
   def deviations(self, strategy_tuple, i):
     """Generates deviations for player i."""
     deviation = list(strategy_tuple)
-    for dev in range(len(self.strategies)):
+    for dev in self.strategies:
       if dev != strategy_tuple[i]:
         deviation[i] = dev
         yield tuple(deviation)
 
-  def is_equilibrium(self, values_idx, comp=lambda x,y: y-x>DELTA):
+  def is_equilibrium(self, all_players_strategies, comp=lambda x,y: y-x>DELTA):
     for player in range(len(self.players)):
-      for deviation in self.deviations(values_idx, player):
+      for deviation in self.deviations(all_players_strategies, player):
         if comp(
           self.cost_matrix.get(deviation)[player],
-          self.cost_matrix.get(values_idx)[player]):
+          self.cost_matrix.get(all_players_strategies)[player]):
           return False
     return True
 
   def get_equilibria(self):
     equilibria = []
-    for values_idx in self.cost_matrix.keys():
-      if self.is_equilibrium(values_idx):
-        equilibria.append(values_idx)
+    for all_players_strategies in self.cost_matrix.keys():
+      if self.is_equilibrium(all_players_strategies):
+        equilibria.append(all_players_strategies)
     return equilibria
+
+class PartitionGame(Game):
+  def __init__(self, graph=None, values=None, players=None):
+    """
+    Args:
+      graph: List of edges between players, eg
+        [(0, 1), (1, 2), (0, 2)].
+      values: A list to use for the values set.
+      players: List of player z initial values indicies, eg
+        [0, 1, 2].  Should be same size as graph.
+    """
+    super().__init__(
+      graph=graph, values=values, players=players)
+    self.strategies = [HashablePartition(p) for p in partition(values)]
+    self.num_values = len(values)
+
+  @classmethod
+  def GetRelevantTupleFromPartition(cls, z, partition):
+    """Returns the set t such that z in t and t in partition."""
+    for t in partition:
+      if z in t:
+        return set(t)
+    
+  def dist(self, strategy1, strategy2):
+    """distance from strategy1 to strategy2."""
+    return 1 - len(set.intersection(strategy1, strategy2))/max(len(strategy1), len(strategy2))
+  
+  def cost(self, strategy_index, z, neigbor_strategies):
+    """
+    Args:
+      strategy_index - index of s_i
+      z - z value (not index!)
+      adjacent_strategies - collection of surrounding s_j.
+    """
+    dist_to_self = self.dist(z, strategy_index)
+    dist_to_neighbors = sum(map(
+        lambda neighbor_strategy: self.dist(neighbor_strategy, strategy_index),
+        neigbor_strategies))
+    return dist_to_self + dist_to_neighbors
 
 ## Tests
 def testBasicGetEquilibria():
-  G = Game(values=[.125 * i for i in range(9)], players=[0, 8])
+  G = Game(
+    graph=Graph([(0, 1)]),  # player[0] connected to player[1]
+    values=[.125 * i for i in range(9)],
+    players=[0, 8])
   G.update()
   equilibria = G.get_equilibria()
   assert(len(equilibria) == 3)
-  for tup in ((2, 5), (3, 6), (3, 5)):
+  for tup in ((0.375, 0.75), (0.375, 0.625), (0.25, 0.625)):
     assert(tup in equilibria)
+  print("testBasicGetEquilibria: equilibria are", equilibria)
   return G
 
-_G = testBasicGetEquilibria()
+def testBasicPartitionGame():
+  PG = PartitionGame(
+    graph=Graph([(0, 1)]),
+    values=[1, 2, 3, 4],
+    players=[0, 3])
+  return PG
+
+TESTS = [testBasicGetEquilibria, testBasicPartitionGame]
+RESULTS = []
+
+if __name__ == '__main__':
+  for test in TESTS:
+    RESULTS.append(test())
+  assert(all(RESULTS))
+  _G = RESULTS[TESTS.index(testBasicGetEquilibria)]
+  _PG = RESULTS[TESTS.index(testBasicPartitionGame)]
            
 ##        for i, player in enumerate(self.players):
 ##            S = [self.players[j].s
