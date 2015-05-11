@@ -60,22 +60,27 @@ class Game(object):
     """
     self.graph = graph
     self.strategies = values
-    self.players = [Player(player_val) for player_val in players]
+    if players:
+      self.players = [Player(player_val) for player_val in players]
 
-  def cost(self, strategy, z, neigbor_strategies):
+  def cost(self, strategy, i, neigbor_strategies):
     """Cost of playing strategy if internal value is z.
 
     Args:
       strategy - ith player's strategy
-      z - index of z_i
+      i - index of player
       adjacent_strategies - collection of surrounding s_j.
     """
-    dist_to_self = self.dist(z, strategy)
+    dist_to_self = self.dist_to_player(i, strategy)
     dist_to_neighbors = sum(map(
         lambda neighbor_strategy: self.dist(neighbor_strategy, strategy),
         neigbor_strategies))
     return dist_to_self + dist_to_neighbors
 
+  def dist_to_player(self, i, strategy):
+    """distance from strategy to player i."""
+    return self.dist(self.strategies[self.players[i].z], strategy)
+  
   def dist(self, strategy1, strategy2):
     """distance from strategy1 to strategy2."""
     return abs(strategy1 - strategy2)**2
@@ -93,7 +98,7 @@ class Game(object):
       for i in range(len(self.players)):
          cost_to_i = self.cost(
            all_players_strategies[i],
-           self.strategies[self.players[i].z],
+           i,
            [all_players_strategies[j] for j in self.adj(i)])
          costs.append(cost_to_i)
       self.cost_matrix[all_players_strategies] = costs
@@ -123,7 +128,7 @@ class Game(object):
     return equilibria
 
 class PartitionGame(Game):
-  def __init__(self, graph=None, values=None, players=None):
+  def __init__(self, graph=None, values=None, num_players=None):
     """
     Args:
       graph: List of edges between players, eg
@@ -133,9 +138,13 @@ class PartitionGame(Game):
         [0, 1, 2].  Should be same size as graph.
     """
     super().__init__(
-      graph=graph, values=values, players=players)
+      graph=graph, values=values)
     self.strategies = [HashablePartition(p) for p in partition(values)]
     self.num_values = len(values)
+
+    full_reveal_index = self.strategies.index(HashablePartition([
+      (i,) for i in values]))
+    self.players = [Player(full_reveal_index) for i in range(num_players)]
 
   @classmethod
   def GetRelevantTupleFromPartition(cls, z, partition):
@@ -143,24 +152,106 @@ class PartitionGame(Game):
     for t in partition:
       if z in t:
         return set(t)
-    
+
+  def dist_to_player(self, i, strategy):
+    """distance from strategy to player i."""
+    return (self.num_values - len(strategy))/self.num_values
+
   def dist(self, strategy1, strategy2):
-    """distance from strategy1 to strategy2."""
-    return 1 - len(set.intersection(strategy1, strategy2))/max(len(strategy1), len(strategy2))
+    accumulator = 0
+    for set1 in strategy1:
+      for set2 in strategy2:
+        accumulator += (
+          self.set_distance(set1, set2) *
+          len(set1) / self.num_values *
+          len(set2) / self.num_values)
+    return accumulator
+        
+  def set_distance(self, set1, set2):
+    """distance from set1 to set2."""
+    return 1 - len(set.intersection(set(set1), set(set2)))/max(len(set1), len(set2))
   
-  def cost(self, strategy_index, z, neigbor_strategies):
+  def cost(self, strategy_index, i, neigbor_strategies):
     """
     Args:
       strategy_index - index of s_i
-      z - z value (not index!)
+      i - player index
       adjacent_strategies - collection of surrounding s_j.
     """
-    dist_to_self = self.dist(z, strategy_index)
+    dist_to_self = self.dist_to_player(i, strategy_index)
     dist_to_neighbors = sum(map(
         lambda neighbor_strategy: self.dist(neighbor_strategy, strategy_index),
         neigbor_strategies))
     return dist_to_self + dist_to_neighbors
 
+class EuclideanPartitionGame(PartitionGame):
+  def __init__(self, graph=None, values=None, num_players=None):
+    """
+    Args:
+      graph: List of edges between players, eg
+        [(0, 1), (1, 2), (0, 2)].
+      values: A list to use for the values set.
+      players: List of player z initial values indicies, eg
+        [0, 1, 2].  Should be same size as graph.
+    """
+    super().__init__(
+      graph=graph, values=values)
+    self.strategies = [HashablePartition(p) for p in partition(values)]
+    self.num_values = len(values)
+
+    full_reveal_index = self.strategies.index(HashablePartition([
+      (i,) for i in values]))
+    self.players = [Player(full_reveal_index) for i in range(num_players)]
+
+  @classmethod
+  def GetRelevantTupleFromPartition(cls, z, partition):
+    """Returns the set t such that z in t and t in partition."""
+    for t in partition:
+      if z in t:
+        return set(t)
+
+  def euclidean_dist(self, val1, val2):
+    return abs(val2 - val1)
+
+  def dist_to_player(self, i, strategy):
+    """distance from strategy to player i."""
+    accumulator = 0
+    for tup in strategy:
+      for val1 in tup:
+        for val2 in tup:
+          accumulator += self.euclidean_dist(val1, val2)
+        accumulator /= len(tup)
+    accumulator /= self.num_values
+    
+    return accumulator
+
+  def dist(self, strategy1, strategy2):
+    accumulator = 0
+    for set1 in strategy1:
+      for set2 in strategy2:
+        accumulator += (
+          self.set_distance(set1, set2) *
+          len(set1) / self.num_values *
+          len(set2) / self.num_values)
+    return accumulator
+        
+  def set_distance(self, set1, set2):
+    """distance from set1 to set2."""
+    return 1 - len(set.intersection(set(set1), set(set2)))/max(len(set1), len(set2))
+  
+  def cost(self, strategy_index, i, neigbor_strategies):
+    """
+    Args:
+      strategy_index - index of s_i
+      i - player index
+      adjacent_strategies - collection of surrounding s_j.
+    """
+    dist_to_self = self.dist_to_player(i, strategy_index)
+    dist_to_neighbors = sum(map(
+        lambda neighbor_strategy: self.dist(neighbor_strategy, strategy_index),
+        neigbor_strategies))
+    return dist_to_self + dist_to_neighbors
+    
 ## Tests
 def testBasicGetEquilibria():
   G = Game(
@@ -179,7 +270,7 @@ def testBasicPartitionGame():
   PG = PartitionGame(
     graph=Graph([(0, 1)]),
     values=[1, 2, 3, 4],
-    players=[0, 3])
+    num_players=2)
   return PG
 
 TESTS = [testBasicGetEquilibria, testBasicPartitionGame]
