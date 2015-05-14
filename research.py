@@ -201,14 +201,9 @@ class EuclideanPartitionGame(PartitionGame):
 
     full_reveal_index = self.strategies.index(HashablePartition([
       (i,) for i in values]))
-    self.players = [Player(full_reveal_index) for i in range(num_players)]
-
-  @classmethod
-  def GetRelevantTupleFromPartition(cls, z, partition):
-    """Returns the set t such that z in t and t in partition."""
-    for t in partition:
-      if z in t:
-        return set(t)
+    # Game is symmetric, so independent of player
+    self.players = list(range(num_players))
+    #self.players = [Player(0) for i in range(num_players)]
 
   def euclidean_dist(self, val1, val2):
     return abs(val2 - val1)
@@ -222,17 +217,45 @@ class EuclideanPartitionGame(PartitionGame):
           accumulator += self.euclidean_dist(val1, val2)
         accumulator /= len(tup)
     accumulator /= self.num_values
-    
     return accumulator
 
   def dist(self, strategy1, strategy2):
-    accumulator = 0
+    """
+    For set1, set2 in strategy1, strategy2:
+      weight set1->set2:
+        p(set1)*p(set2)*dist(set1, set2)
+
+    dist(set1, set2):
+      greedily move elements from set1 to elements from set2 and subtract the
+      appropriate weight.
+    greedy works because: if you assume elements can take arbitrary weight, then
+    each element of set1 should be moved to the closest element of set2.  But
+    then some weight needs to be shifted off of the elements of set2 - but it
+    doesn't matter where the weight came from; the distance would be the same.
+    """
+    accumulator = 0.0
     for set1 in strategy1:
       for set2 in strategy2:
-        accumulator += (
-          self.set_distance(set1, set2) *
-          len(set1) / self.num_values *
-          len(set2) / self.num_values)
+        list1 = sorted(set1)
+        list2 = sorted(set2)
+
+        dist_set1_set2 = 0
+        item2_index = 0
+        tokens_left_on_item2 = len(set1)
+        # Each elt of set2 starts with |set1| tokens
+        for item1 in set1:
+          tokens_left_on_item1 = len(set2)
+          while tokens_left_on_item1:
+            tokens_moved = min(tokens_left_on_item1, tokens_left_on_item2)
+            dist_set1_set2 += tokens_moved * self.euclidean_dist(item1, list2[item2_index])
+            tokens_left_on_item1 -= tokens_moved
+            tokens_left_on_item2 -= tokens_moved
+            if not tokens_left_on_item2:
+              item2_index += 1
+              tokens_left_on_item2 = len(set1)
+        # p(set1) * p(set2) * tokendist / #totaltokens
+        # |set1|/n * |set2|/n * tokendist/|set1| * |set2|
+        accumulator += dist_set1_set2 / (self.num_values ** 2)
     return accumulator
         
   def set_distance(self, set1, set2):
