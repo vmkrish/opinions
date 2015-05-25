@@ -25,6 +25,8 @@ class HashablePartition(set):
     _list = list(self)
     _list.sort()
     return tuple(_list).__hash__()
+  def __repr__(self):
+    return set(self).__repr__()
 
 def unroll(f):
   """Returns g such that g(x) = f(*x)."""
@@ -62,6 +64,14 @@ class Game(object):
     self.strategies = values
     if players:
       self.players = [Player(player_val) for player_val in players]
+
+  def run(self):
+    self.update()
+    return self.get_equilibria()
+
+  def pp(self):
+    for eq in self.run():
+      print(eq)
 
   def cost(self, strategy, i, neigbor_strategies):
     """Cost of playing strategy if internal value is z.
@@ -195,7 +205,7 @@ class EuclideanPartitionGame(PartitionGame):
         [0, 1, 2].  Should be same size as graph.
     """
     super().__init__(
-      graph=graph, values=values)
+      graph=graph, values=values, num_players=num_players)
     self.strategies = [HashablePartition(p) for p in partition(values)]
     self.num_values = len(values)
 
@@ -212,10 +222,11 @@ class EuclideanPartitionGame(PartitionGame):
     """distance from strategy to player i."""
     accumulator = 0
     for tup in strategy:
+      tup_accumulator = 0
       for val1 in tup:
         for val2 in tup:
-          accumulator += self.euclidean_dist(val1, val2)
-        accumulator /= len(tup)
+          tup_accumulator += self.euclidean_dist(val1, val2)
+      accumulator += tup_accumulator / len(tup)
     accumulator /= self.num_values
     return accumulator
 
@@ -260,7 +271,10 @@ class EuclideanPartitionGame(PartitionGame):
         
   def set_distance(self, set1, set2):
     """distance from set1 to set2."""
-    return 1 - len(set.intersection(set(set1), set(set2)))/max(len(set1), len(set2))
+    return (
+      1 -
+      len(set.intersection(set(set1), set(set2)))
+      / max(len(set1), len(set2)))
   
   def cost(self, strategy_index, i, neigbor_strategies):
     """
