@@ -112,6 +112,24 @@ class Game(object):
            [all_players_strategies[j] for j in self.adj(i)])
          costs.append(cost_to_i)
       self.cost_matrix[all_players_strategies] = costs
+
+  def get_alpha(self, strategy):
+    self.alphas = dict()
+    dist_to_strategy = self.dist_to_player(0, strategy)  # symmetry
+    dist_btwn_strategy = self.dist(strategy, strategy)
+    for dev in self.strategies:
+      if dev != strategy:
+        dist_to_dev = self.dist_to_player(0, dev)  # sym
+        dist_btwn_dev = self.dist(dev, strategy)
+        if dist_btwn_dev < dist_btwn_strategy:
+          print("FATAL:", dev, "is a better response to", strategy, "!")
+        if dist_to_strategy == dist_to_dev:
+          if dist_btwn_dev == dist_btwn_strategy:
+            print("INFO:", dev, "is equivalent to", strategy, ".")
+          self.alphas[dev] = float("inf")
+        else:
+          self.alphas[dev] = - (dist_btwn_strategy - dist_btwn_dev) / (dist_to_strategy - dist_to_dev)
+    return self.alphas
           
   def deviations(self, strategy_tuple, i):
     """Generates deviations for player i."""
