@@ -121,15 +121,25 @@ class Game(object):
       if dev != strategy:
         dist_to_dev = self.dist_to_player(0, dev)  # sym
         dist_btwn_dev = self.dist(dev, strategy)
-        if dist_btwn_dev < dist_btwn_strategy:
-          print("FATAL:", dev, "is a better response to", strategy, "!")
         if dist_to_strategy == dist_to_dev:
-          if dist_btwn_dev == dist_btwn_strategy:
-            print("INFO:", dev, "is equivalent to", strategy, ".")
-          self.alphas[dev] = float("inf")
+          self.alphas[dev] = (
+            (float("-inf"),) if dist_btwn_strategy < dist_btwn_dev
+            else (float("inf"),))
         else:
-          self.alphas[dev] = - (dist_btwn_strategy - dist_btwn_dev) / (dist_to_strategy - dist_to_dev)
+          if dist_btwn_strategy < dist_btwn_dev:  # might want a large alpha
+            self.alphas[dev] = (
+              (dist_btwn_dev - dist_btwn_strategy) / (dist_to_strategy - dist_to_dev),)
+          else:
+            self.alphas[dev] = (
+              (dist_btwn_dev - dist_btwn_strategy) / (dist_to_strategy - dist_to_dev), 0)
     return self.alphas
+
+  def get_all_alphas(self):
+    # Set of strategies which are/are not best responses to themselves at some
+    # alpha value.
+    stable_strategies = set()
+    unstable_strategies = set()
+    
           
   def deviations(self, strategy_tuple, i):
     """Generates deviations for player i."""
